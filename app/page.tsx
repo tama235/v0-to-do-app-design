@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Checkbox } from "@/components/ui/checkbox"
-import { Trash2, Plus, Tag, Clock, X } from "lucide-react"
+import { Trash2, Plus, Tag, Clock, X, Play, Pause, Square } from "lucide-react"
 import { cn } from "@/lib/utils"
 
 interface Task {
@@ -15,6 +15,9 @@ interface Task {
   completed: boolean
   tags: string[]
   reminder?: Date
+  timeSpent: number // in seconds
+  isTimerRunning: boolean
+  timerStartTime?: number
 }
 
 export default function TodoApp() {
@@ -25,18 +28,37 @@ export default function TodoApp() {
   const [showReminderInput, setShowReminderInput] = useState<string | null>(null)
   const [reminderDateTime, setReminderDateTime] = useState("")
 
-  // Check for due reminders
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setTasks((prevTasks) =>
+        prevTasks.map((task) => {
+          if (task.isTimerRunning && task.timerStartTime) {
+            const now = Date.now()
+            const additionalTime = Math.floor((now - task.timerStartTime) / 1000)
+            return {
+              ...task,
+              timeSpent: task.timeSpent + additionalTime,
+              timerStartTime: now,
+            }
+          }
+          return task
+        }),
+      )
+    }, 1000)
+
+    return () => clearInterval(interval)
+  }, [])
+
   useEffect(() => {
     const interval = setInterval(() => {
       const now = new Date()
       tasks.forEach((task) => {
         if (task.reminder && task.reminder <= now && !task.completed) {
           alert(`Reminder: ${task.text}`)
-          // Remove the reminder after alerting
           setTasks((prev) => prev.map((t) => (t.id === task.id ? { ...t, reminder: undefined } : t)))
         }
       })
-    }, 60000) // Check every minute
+    }, 60000)
 
     return () => clearInterval(interval)
   }, [tasks])
@@ -48,6 +70,8 @@ export default function TodoApp() {
         text: newTask.trim(),
         completed: false,
         tags: [],
+        timeSpent: 0,
+        isTimerRunning: false,
       }
       setTasks([...tasks, task])
       setNewTask("")
@@ -60,6 +84,54 @@ export default function TodoApp() {
 
   const toggleTask = (id: string) => {
     setTasks(tasks.map((task) => (task.id === id ? { ...task, completed: !task.completed } : task)))
+  }
+
+  const startTimer = (taskId: string) => {
+    setTasks(
+      tasks.map(
+        (task) =>
+          task.id === taskId
+            ? { ...task, isTimerRunning: true, timerStartTime: Date.now() }
+            : { ...task, isTimerRunning: false }, // Stop other timers
+      ),
+    )
+  }
+
+  const pauseTimer = (taskId: string) => {
+    setTasks(
+      tasks.map((task) => {
+        if (task.id === taskId && task.isTimerRunning && task.timerStartTime) {
+          const now = Date.now()
+          const additionalTime = Math.floor((now - task.timerStartTime) / 1000)
+          return {
+            ...task,
+            isTimerRunning: false,
+            timeSpent: task.timeSpent + additionalTime,
+            timerStartTime: undefined,
+          }
+        }
+        return task
+      }),
+    )
+  }
+
+  const resetTimer = (taskId: string) => {
+    setTasks(
+      tasks.map((task) =>
+        task.id === taskId ? { ...task, timeSpent: 0, isTimerRunning: false, timerStartTime: undefined } : task,
+      ),
+    )
+  }
+
+  const formatTime = (seconds: number) => {
+    const hours = Math.floor(seconds / 3600)
+    const minutes = Math.floor((seconds % 3600) / 60)
+    const secs = seconds % 60
+
+    if (hours > 0) {
+      return `${hours}:${minutes.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`
+    }
+    return `${minutes}:${secs.toString().padStart(2, "0")}`
   }
 
   const addTag = (taskId: string) => {
@@ -96,7 +168,6 @@ export default function TodoApp() {
       <div className="max-w-2xl mx-auto">
         <h1 className="text-3xl font-bold text-foreground mb-8 text-center">Simple To-Do</h1>
 
-        {/* Add Task Input */}
         <Card className="mb-6">
           <CardContent className="p-4">
             <div className="flex gap-2">
@@ -114,7 +185,6 @@ export default function TodoApp() {
           </CardContent>
         </Card>
 
-        {/* Task List */}
         <div className="space-y-3">
           {tasks.map((task) => (
             <Card key={task.id} className="transition-all duration-200 hover:shadow-md">
@@ -132,7 +202,48 @@ export default function TodoApp() {
                       {task.text}
                     </p>
 
-                    {/* Tags */}
+                    <div className="flex items-center gap-2 mt-2">
+                      <div className="flex items-center gap-1">
+                        <Clock className="h-3 w-3 text-muted-foreground" />
+                        <span
+                          className={cn(
+                            "text-xs font-mono",
+                            task.isTimerRunning ? "text-primary font-semibold" : "text-muted-foreground",
+                          )}
+                        >
+                          {formatTime(task.timeSpent)}
+                        </span>
+                      </div>
+
+                      <div className="flex gap-1">
+                        {!task.isTimerRunning ? (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => startTimer(task.id)}
+                            className="h-6 w-6 p-0"
+                            disabled={task.completed}
+                          >
+                            <Play className="h-3 w-3" />
+                          </Button>
+                        ) : (
+                          <Button variant="ghost" size="sm" onClick={() => pauseTimer(task.id)} className="h-6 w-6 p-0">
+                            <Pause className="h-3 w-3" />
+                          </Button>
+                        )}
+
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => resetTimer(task.id)}
+                          className="h-6 w-6 p-0"
+                          disabled={task.timeSpent === 0}
+                        >
+                          <Square className="h-3 w-3" />
+                        </Button>
+                      </div>
+                    </div>
+
                     {task.tags.length > 0 && (
                       <div className="flex flex-wrap gap-1 mt-2">
                         {task.tags.map((tag, index) => (
@@ -148,7 +259,6 @@ export default function TodoApp() {
                       </div>
                     )}
 
-                    {/* Reminder Display */}
                     {task.reminder && (
                       <div className="flex items-center gap-1 mt-2">
                         <Clock className="h-3 w-3 text-accent" />
@@ -164,7 +274,6 @@ export default function TodoApp() {
                       </div>
                     )}
 
-                    {/* Tag Input */}
                     {showTagInput === task.id && (
                       <div className="flex gap-2 mt-2">
                         <Input
@@ -181,7 +290,6 @@ export default function TodoApp() {
                       </div>
                     )}
 
-                    {/* Reminder Input */}
                     {showReminderInput === task.id && (
                       <div className="flex gap-2 mt-2">
                         <Input
@@ -198,7 +306,6 @@ export default function TodoApp() {
                     )}
                   </div>
 
-                  {/* Action Buttons */}
                   <div className="flex gap-1">
                     <Button
                       variant="ghost"
